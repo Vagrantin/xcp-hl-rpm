@@ -1,5 +1,5 @@
 name: Publish yum repositories
-run-name: "Publish rpm.xcp-hl.org (${{ github.event_name }})"
+run-name: "Publish rpm.xcp-hl.org (${{ github.event_name }}${{ inputs.promotion_id && format(' {0}', inputs.promotion_id) || '' }})"
 
 # One Pages site at https://rpm.xcp-hl.org/ for every XCP-HL yum repository (xcp-hl#190):
 #
@@ -18,6 +18,7 @@ run-name: "Publish rpm.xcp-hl.org (${{ github.event_name }})"
 #
 # Releases live in other repos, so workflow_run cannot trigger this. The schedule polls, and
 # repository_dispatch (event type rpm-publish) lets a source repo ask for a run once it has a token.
+# jenkins-infra promote dispatches it with promotion_id after writing stable.json, then waits for that run.
 
 on:
   push:
@@ -27,6 +28,11 @@ on:
   repository_dispatch:
     types: [rpm-publish]
   workflow_dispatch:
+    inputs:
+      promotion_id:
+        description: 'Set by jenkins-infra prod/promote so it can wait for this exact run'
+        required: false
+        default: ''
 
 concurrency:
   group: "pages"
