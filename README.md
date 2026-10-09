@@ -5,6 +5,12 @@ Signed yum repositories for XCP-ng HomeLab Edition (XCP-HL), published at
 repository, so the documentation site can be rebuilt without touching the
 repositories hosts update from.
 
+Pages serves only the repository metadata, `.repo` files and the key. Each package entry carries
+an `xml:base` pointing at its GitHub release asset
+(`https://github.com/Vagrantin/<repo>/releases/download/<tag>/<file>.rpm`), which yum and dnf
+download directly. The signed `repomd.xml` still pins every package's SHA-256, so integrity is
+unchanged, and the site stays a few MiB whatever the number of releases.
+
 | Repository ID | Package | Path | Source |
 |---|---|---|---|
 | `xcp-hl-base` | `xcp-hl-release` | `/xcp-hl/8.3/x86_64/` | newest 10 releases of `Vagrantin/xcp-hl` |
@@ -26,8 +32,10 @@ Issues go to the [xcp-hl repository](https://github.com/Vagrantin/xcp-hl/issues)
   `main`, hourly, on `workflow_dispatch`, and on `repository_dispatch` (type `rpm-publish`).
   It only deploys when `manifest.txt` differs from the live one.
 - `scripts/build-simple.sh` builds one tree from a repo's newest releases.
-- `scripts/build-promoted.sh` and `scripts/updateinfo.jq` are vendored from `pages/` in
-  `xoa-proxy` (`ceefb6b`) and `xoa-hl` (`e1faaad`), identical in both. Keep them in sync until the cut.
+- The workflow checks every package has a release link, then strips the RPMs before deploy.
+- `scripts/build-promoted.sh` is adapted from `pages/build-site.sh` in `xoa-proxy` (`ceefb6b`) and
+  `xoa-hl` (`e1faaad`), identical in both, to keep packages on the releases. `scripts/updateinfo.jq`
+  is vendored unchanged. Port channel rule changes until the cut.
 - `scripts/list-packages.sh` writes the package list page for the xoa-hl stable tree.
 - `site/` is copied to the site root as is.
 - `ci/check.sh` checks every `.repo` file's contract (section names, `gpgcheck=0` with
@@ -62,11 +70,12 @@ Pages source: GitHub Actions.
 Until the cut, installed hosts and appliances keep using the `vagrantin.github.io` URLs, which the source repos
 still publish. This site mirrors them with the same rules.
 
-1. Set up DNS and HTTPS (above), and check from an XCP-ng 8.3 host that the dom0 trusts the
-   certificate: `curl -fsSI https://rpm.xcp-hl.org/xcp-hl.repo`, then `yum makecache` with
-   `site/xcp-hl.repo`.
+1. Set up DNS and HTTPS (above). From an XCP-ng 8.3 host and an XOA-HL appliance, check that the
+   client trusts the certificates and follows the release redirect: `yum makecache` with the new
+   `.repo`, then `yum install --downloadonly` (`dnf` on the appliance) of one package from each tree.
 2. In `xcp-hl`, point `SOURCES/xcp-hl.repo` and `pages/xcp-hl.repo` at `rpm.xcp-hl.org`, and cut an
-   `xcp-hl-release`. Hosts receive it from the old URL, then follow the new one.
+   `xcp-hl-release`. It owns the `.repo` for all three host repos (not `%config`), so hosts that
+   install it from the old URL move to the new one. Keep the old trees for a grace period.
 3. In `xoa-hl`, point `SOURCES/xoa-hl.repo` and `SOURCES/xoa-hl-testing.repo` at
    `rpm.xcp-hl.org` and release; appliances receive it from the old URL, then follow the new one.
 4. Update the bootstrap instructions: xcp-hl docs (`updates.md` in en, fr, ja,

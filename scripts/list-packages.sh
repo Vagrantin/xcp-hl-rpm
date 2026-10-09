@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# HTML list of a stable tree's packages, from build-promoted.sh's stable.list. Args: LIST BASEURL.
+# HTML list of a stable tree's packages, from build-promoted.sh's stable.list. Args: LIST BASEURL DOWNLOAD.
 set -euo pipefail
-list="$1" baseurl="$2"
+list="$1" baseurl="$2" download="$3"
 cat <<EOF
 <!doctype html>
 <html lang="en">
@@ -18,7 +18,7 @@ cat <<EOF
 <h2>Packages</h2>
 <ul>
 EOF
-cut -d' ' -f2 "$list" | sort | while read -r rpm; do echo "<li><a href=\"${rpm}\">${rpm}</a></li>"; done
+sort -k2 "$list" | while read -r tag rpm _; do echo "<li><a href=\"${download}${tag}/${rpm}\">${rpm}</a></li>"; done
 cat <<EOF
 </ul>
 <p><a href="/">Back to the site root</a></p>

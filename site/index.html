@@ -32,6 +32,8 @@
 
 <h1>XCP-HL yum repositories</h1>
 <p class="sub">Signed RPM repositories for XCP-ng HomeLab Edition. Built for XCP-ng 8.3.</p>
+<p>This site serves repository metadata. Packages download from their
+<a href="https://github.com/Vagrantin">GitHub release</a> assets.</p>
 
 <table>
   <tr><th>Repository ID</th><th>Package</th><th>Base URL</th></tr>
@@ -60,7 +62,7 @@ dnf update xoa-hl</code></pre>
 <h2>Verification</h2>
 <p>Each <code>repodata/repomd.xml</code> carries a detached armored signature, checked by
 <code>repo_gpgcheck=1</code>. The signed <code>repomd.xml</code> records a SHA-256 of
-<code>primary.xml</code>, which records a SHA-256 of every package. Per-package checking is off
+<code>primary.xml</code>, which records a SHA-256 of every package, wherever it downloads from. Per-package checking is off
 (<code>gpgcheck=0</code>) on purpose: rpm 4.11 on XCP-ng 8.3 dom0 cannot verify signatures made
 by a signing subkey.</p>
 <p>Master key fingerprint:</p>
