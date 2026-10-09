@@ -11,9 +11,12 @@ repositories hosts update from.
 | `xcp-hl-xolite` | `xo-lite-ce` | `/xolite-ce/8.3/x86_64/` | newest 5 releases of `Vagrantin/xolite-ce` |
 | `xcp-hl-xoa-proxy` | `xoa-proxy` | `/xoa-proxy/8.3/x86_64/` | exactly `stable.json` on `xoa-proxy`'s `promotions` branch |
 | `xcp-hl-xoa-proxy-testing` | `xoa-proxy` candidates | `/xoa-proxy/testing/8.3/x86_64/` | newest 5 pre-releases of `Vagrantin/xoa-proxy` |
+| `xoa-hl` | `xoa-hl` (appliance) | `/xoa-hl/8.3/x86_64/` | exactly `stable.json` on `xoa-hl`'s `promotions` branch |
+| `xoa-hl-testing` | `xoa-hl` candidates | `/xoa-hl/testing/8.3/x86_64/` | newest 5 pre-releases of `Vagrantin/xoa-hl` |
 
-The site root also serves the bootstrap `xcp-hl.repo`, `xcp-hl-xoa-proxy-testing.repo`,
-`xcp-ng-ce-public.asc` and `manifest.txt` (what is published, used to skip no-op deploys).
+The `xoa-hl` repositories belong to the appliance plane: dnf inside the XOA-HL VM reads them,
+not the XCP-ng host. The site root also serves the bootstrap `xcp-hl.repo`,
+`xcp-hl-xoa-proxy-testing.repo`, `xoa-hl.repo`, `xoa-hl-testing.repo`, `xcp-ng-ce-public.asc` and `manifest.txt` (what is published, used to skip no-op deploys).
 
 Issues go to the [xcp-hl repository](https://github.com/Vagrantin/xcp-hl/issues).
 
@@ -23,10 +26,11 @@ Issues go to the [xcp-hl repository](https://github.com/Vagrantin/xcp-hl/issues)
   `main`, hourly, on `workflow_dispatch`, and on `repository_dispatch` (type `rpm-publish`).
   It only deploys when `manifest.txt` differs from the live one.
 - `scripts/build-simple.sh` builds one tree from a repo's newest releases.
-- `scripts/build-xoa-proxy.sh` and `scripts/updateinfo.jq` are vendored from
-  `xoa-proxy/pages/` at `ceefb6b`. Keep them in sync until the cut.
+- `scripts/build-promoted.sh` and `scripts/updateinfo.jq` are vendored from `pages/` in
+  `xoa-proxy` (`ceefb6b`) and `xoa-hl` (`e1faaad`), identical in both. Keep them in sync until the cut.
+- `scripts/list-packages.sh` writes the package list page for the xoa-hl stable tree.
 - `site/` is copied to the site root as is.
-- `ci/check.sh` checks the `.repo` contract (section names, `gpgcheck=0` with
+- `ci/check.sh` checks every `.repo` file's contract (section names, `gpgcheck=0` with
   `repo_gpgcheck=1`, URLs on `rpm.xcp-hl.org`) and the key fingerprint.
 
 Secrets: `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE` (same key as the source repos).
@@ -55,7 +59,7 @@ Pages source: GitHub Actions.
 
 ## Transition and cut
 
-Until the cut, installed hosts keep using the `vagrantin.github.io` URLs, which the source repos
+Until the cut, installed hosts and appliances keep using the `vagrantin.github.io` URLs, which the source repos
 still publish. This site mirrors them with the same rules.
 
 1. Set up DNS and HTTPS (above), and check from an XCP-ng 8.3 host that the dom0 trusts the
@@ -63,11 +67,13 @@ still publish. This site mirrors them with the same rules.
    `site/xcp-hl.repo`.
 2. In `xcp-hl`, point `SOURCES/xcp-hl.repo` and `pages/xcp-hl.repo` at `rpm.xcp-hl.org`, and cut an
    `xcp-hl-release`. Hosts receive it from the old URL, then follow the new one.
-3. Update the bootstrap instructions: xcp-hl docs (`updates.md` in en, fr, ja,
-   `developers/xcp-ng-ce-iso.md`), `xolite-ce` and `xoa-proxy` READMEs, `pages/*.repo` and
+3. In `xoa-hl`, point `SOURCES/xoa-hl.repo` and `SOURCES/xoa-hl-testing.repo` at
+   `rpm.xcp-hl.org` and release; appliances receive it from the old URL, then follow the new one.
+4. Update the bootstrap instructions: xcp-hl docs (`updates.md` in en, fr, ja,
+   `developers/xcp-ng-ce-iso.md`), `xolite-ce`, `xoa-proxy` and `xoa-hl` READMEs, `pages/*.repo` and
    `pages/index.html`.
-4. Make the source repos send `repository_dispatch` (`rpm-publish`) after a release or promotion,
+5. Make the source repos send `repository_dispatch` (`rpm-publish`) after a release or promotion,
    and repoint jenkins-infra `config/qa-streams.json` (`yum`, `pages_workflow`, `site_url`,
    `stable_url`, `key_url`) at this repo, so `agent/promote.sh` waits for this workflow.
-5. After a grace period, drop the yum steps from `xcp-hl/.github/workflows/pages.yml` (docs only)
-   and retire `pages-repo.yml` in `xolite-ce` and `xoa-proxy`.
+6. After a grace period, drop the yum steps from `xcp-hl/.github/workflows/pages.yml` (docs only)
+   and retire `pages-repo.yml` in `xolite-ce`, `xoa-proxy` and `xoa-hl`.

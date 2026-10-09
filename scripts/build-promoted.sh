@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Vendored from xoa-proxy pages/build-site.sh@ceefb6b (xcp-hl#154, #190); keep the two in sync until the cut.
+# Vendored from pages/build-site.sh, identical in xoa-proxy@ceefb6b and xoa-hl@e1faaad; sync until the cut (#190).
 # Stable from stable.json, testing from the newest candidates. Every RPM's SHA-256 is checked.
 # Env: REPO (owner/name), STABLE_JSON, PROMOTIONS_COMMIT, PKG_GLOB_RE, GH_TOKEN (optional), SITE,
 #      XCPNG_SERIES, REPO_ARCH, KEEP_CANDIDATES. Output: $SITE/ (metadata unsigned; the workflow signs it).

@@ -39,6 +39,8 @@
   <tr><td><code>xcp-hl-xolite</code></td><td><code>xo-lite-ce</code></td><td><code>/xolite-ce/8.3/x86_64/</code></td></tr>
   <tr><td><code>xcp-hl-xoa-proxy</code></td><td><code>xoa-proxy</code></td><td><code>/xoa-proxy/8.3/x86_64/</code></td></tr>
   <tr><td><code>xcp-hl-xoa-proxy-testing</code></td><td><code>xoa-proxy</code> candidates</td><td><code>/xoa-proxy/testing/8.3/x86_64/</code></td></tr>
+  <tr><td><code>xoa-hl</code></td><td><code>xoa-hl</code> (appliance)</td><td><code>/xoa-hl/8.3/x86_64/</code></td></tr>
+  <tr><td><code>xoa-hl-testing</code></td><td><code>xoa-hl</code> candidates</td><td><code>/xoa-hl/testing/8.3/x86_64/</code></td></tr>
 </table>
 
 <h2>Add the repositories</h2>
@@ -48,6 +50,12 @@ rpm --import https://rpm.xcp-hl.org/xcp-ng-ce-public.asc
 yum clean all &amp;&amp; yum install xcp-hl-release</code></pre>
 <p>Installing <code>xcp-hl-release</code> replaces the bootstrap file with the packaged copy,
 after which repository configuration is managed by yum.</p>
+
+<h2>XOA-HL appliance</h2>
+<p>The <code>xoa-hl</code> repositories are read by <code>dnf</code> inside the XOA-HL VM, not by the
+XCP-ng host. The appliance ships its own <code>.repo</code>; a hand-configured one, as root:</p>
+<pre><code>curl -o /etc/yum.repos.d/xoa-hl.repo https://rpm.xcp-hl.org/xoa-hl.repo
+dnf update xoa-hl</code></pre>
 
 <h2>Verification</h2>
 <p>Each <code>repodata/repomd.xml</code> carries a detached armored signature, checked by

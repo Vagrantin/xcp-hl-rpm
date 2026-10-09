@@ -18,6 +18,9 @@ FILES = {
                          {'enabled': '1', 'skip_if_unavailable': 'True'}),
     'site/xcp-hl-xoa-proxy-testing.repo': (['xcp-hl-xoa-proxy-testing'],
                                            {'enabled': '0', 'skip_if_unavailable': 'False'}),
+    # Appliance plane: dnf inside the XOA-HL VM, read by xoa-hl's update units, not by updater.py.
+    'site/xoa-hl.repo': (['xoa-hl'], {'enabled': '1', 'skip_if_unavailable': 'False'}),
+    'site/xoa-hl-testing.repo': (['xoa-hl-testing'], {'enabled': '0', 'skip_if_unavailable': 'False'}),
 }
 BASE = {'gpgcheck': '0', 'repo_gpgcheck': '1', 'gpgkey': KEY}
 bad = []

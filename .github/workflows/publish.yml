@@ -7,9 +7,11 @@ run-name: "Publish rpm.xcp-hl.org (${{ github.event_name }})"
 #   /xolite-ce/8.3/x86_64/           xo-lite-ce, newest releases of Vagrantin/xolite-ce
 #   /xoa-proxy/8.3/x86_64/           xoa-proxy stable, exactly stable.json on xoa-proxy's promotions branch
 #   /xoa-proxy/testing/8.3/x86_64/   xoa-proxy candidates (pre-releases)
+#   /xoa-hl/8.3/x86_64/              xoa-hl stable (appliance self-update), exactly stable.json on xoa-hl's promotions branch
+#   /xoa-hl/testing/8.3/x86_64/      xoa-hl candidates (pre-releases)
 #
 # Transition: the source repos still publish their own vagrantin.github.io trees, which installed
-# hosts use. This site mirrors them with the same rules until the cut (README.md).
+# hosts and appliances use. This site mirrors them with the same rules until the cut (README.md).
 #
 # Releases live in other repos, so workflow_run cannot trigger this. The schedule polls, and
 # repository_dispatch (event type rpm-publish) lets a source repo ask for a run once it has a token.
@@ -74,25 +76,48 @@ jobs:
           OUT: _site/xolite-ce/${{ env.XCPNG_SERIES }}/${{ env.REPO_ARCH }}
         run: bash scripts/build-simple.sh
 
-      # The stable channel is exactly stable.json, read once when this run starts (xcp-hl#154).
-      - name: Read the xoa-proxy promotion record
+      # Stable channels are exactly stable.json, read once when this run starts (xcp-hl#154).
+      - name: Read the promotion records
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 https://github.com/Vagrantin/xoa-proxy.git promotions
-          echo "PROMOTIONS_COMMIT=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_ENV"
-          git show FETCH_HEAD:stable.json > "$RUNNER_TEMP/stable.json"
-          jq -c '{generation, latest, entries: [.entries[] | {tag, status}]}' "$RUNNER_TEMP/stable.json"
+          for name in xoa-proxy xoa-hl; do
+            mkdir -p "$RUNNER_TEMP/$name"
+            git fetch --no-tags --depth=1 "https://github.com/Vagrantin/${name}.git" promotions
+            var="PROMOTIONS_$(echo "$name" | tr 'a-z-' 'A-Z_')"
+            echo "${var}=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_ENV"
+            git show FETCH_HEAD:stable.json > "$RUNNER_TEMP/$name/stable.json"
+            echo "$name: $(jq -c '{generation, latest, entries: [.entries[] | {tag, status}]}' "$RUNNER_TEMP/$name/stable.json")"
+          done
 
       - name: Build xoa-proxy trees
-        working-directory: ${{ runner.temp }}
+        working-directory: ${{ runner.temp }}/xoa-proxy
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: Vagrantin/xoa-proxy
-          STABLE_JSON: ${{ runner.temp }}/stable.json
+          STABLE_JSON: ${{ runner.temp }}/xoa-proxy/stable.json
+          PROMOTIONS_COMMIT: ${{ env.PROMOTIONS_XOA_PROXY }}
           PKG_GLOB_RE: '^xoa-proxy-.*\.rpm$'
           KEEP_CANDIDATES: "5"
           SITE: ${{ github.workspace }}/_site/xoa-proxy
-        run: bash "$GITHUB_WORKSPACE/scripts/build-xoa-proxy.sh"
+        run: bash "$GITHUB_WORKSPACE/scripts/build-promoted.sh"
+
+      - name: Build xoa-hl trees
+        working-directory: ${{ runner.temp }}/xoa-hl
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: Vagrantin/xoa-hl
+          STABLE_JSON: ${{ runner.temp }}/xoa-hl/stable.json
+          PROMOTIONS_COMMIT: ${{ env.PROMOTIONS_XOA_HL }}
+          PKG_GLOB_RE: '^xoa-hl-.*\.rpm$'
+          KEEP_CANDIDATES: "5"
+          SITE: ${{ github.workspace }}/_site/xoa-hl
+        run: |
+          set -euo pipefail
+          bash "$GITHUB_WORKSPACE/scripts/build-promoted.sh"
+          # Pages has no directory listing: list what stable offers, as xoa-hl's own site does.
+          bash "$GITHUB_WORKSPACE/scripts/list-packages.sh" stable.list \
+            "https://rpm.xcp-hl.org/xoa-hl/${XCPNG_SERIES}/${REPO_ARCH}/" \
+            > "${SITE}/${XCPNG_SERIES}/${REPO_ARCH}/index.html"
 
       - name: Assemble site root
         run: |
@@ -102,7 +127,7 @@ jobs:
           # What a deploy would change: every RPM, the promotion generation and this repo's commit.
           {
             echo "commit ${GITHUB_SHA}"
-            echo "promotions ${PROMOTIONS_COMMIT}"
+            echo "promotions xoa-proxy ${PROMOTIONS_XOA_PROXY} xoa-hl ${PROMOTIONS_XOA_HL}"
             (cd _site && find . -name '*.rpm' -print0 | sort -z | xargs -0 sha256sum)
           } > _site/manifest.txt
           echo "site root:"
