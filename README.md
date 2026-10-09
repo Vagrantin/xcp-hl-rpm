@@ -30,7 +30,8 @@ Issues go to the [xcp-hl repository](https://github.com/Vagrantin/xcp-hl/issues)
 
 - `.github/workflows/publish.yml` builds, signs and deploys the site. It runs on push to
   `main`, hourly, on `workflow_dispatch`, and on `repository_dispatch` (type `rpm-publish`).
-  It only deploys when `manifest.txt` differs from the live one.
+  It only deploys when `manifest.txt` differs from the live one. jenkins-infra `prod/promote`
+  dispatches it with a `promotion_id` input after writing `stable.json`, and waits for that run.
 - `scripts/build-simple.sh` builds one tree from a repo's newest releases.
 - The workflow checks every package has a release link, then strips the RPMs before deploy.
 - `scripts/build-promoted.sh` is adapted from `pages/build-site.sh` in `xoa-proxy` (`ceefb6b`) and
