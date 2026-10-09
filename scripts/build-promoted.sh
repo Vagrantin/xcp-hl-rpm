@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Vendored from xoa-proxy pages/build-site.sh@ceefb6b (xcp-hl#154, #190); keep the two in sync until the cut.
+# Adapted from pages/build-site.sh (xoa-proxy@ceefb6b, xoa-hl@e1faaad): packages stay on the releases (#190).
 # Stable from stable.json, testing from the newest candidates. Every RPM's SHA-256 is checked.
+# Metadata points each package at its release asset (xml:base); the workflow strips the RPMs before deploy.
 # Env: REPO (owner/name), STABLE_JSON, PROMOTIONS_COMMIT, PKG_GLOB_RE, GH_TOKEN (optional), SITE,
 #      XCPNG_SERIES, REPO_ARCH, KEEP_CANDIDATES. Output: $SITE/ (metadata unsigned; the workflow signs it).
 set -euo pipefail
@@ -16,9 +17,10 @@ jq -e '.generation and (.entries | type == "array")' "$STABLE_JSON" >/dev/null |
 rm -rf "$SITE" && mkdir -p "$STABLE_DIR" "$TESTING_DIR"
 releases=$(gh_api "${API}/releases?per_page=100")
 
-# fetch DIR TAG NAME SHA256: one release asset, kept only if its bytes are the recorded ones.
+# fetch DIR TAG NAME SHA256: one release asset into DIR/TAG/, kept only if its bytes are the recorded ones.
 fetch() {
-  local dir="$1" tag="$2" name="$3" want="$4" url got
+  local dir="$1/$2" tag="$2" name="$3" want="$4" url got
+  mkdir -p "$dir"
   url=$(jq -r --arg t "$tag" --arg n "$name" '.[] | select(.tag_name == $t) | .assets[] | select(.name == $n) | .browser_download_url' <<<"$releases")
   [[ -n "$url" ]] || { echo "missing: ${tag} has no asset ${name}" >&2; return 1; }
   curl -fsSL --retry 5 --retry-all-errors -o "${dir}/${name}" "$url"
@@ -34,14 +36,7 @@ jq -r --arg now "$NOW" '.entries[] | select(.status == "stable" or (.status == "
 [[ -s stable.list ]] || { echo "stable.json lists nothing to serve" >&2; exit 1; }
 while read -r tag name sha; do fetch "$STABLE_DIR" "$tag" "$name" "$sha"; done < stable.list
 
-# Superseded (fix-forward): the file stays downloadable until retain_until, so cached metadata never 404s,
-# but it is left out of the metadata, so nothing new can select or downgrade to it.
-jq -r --arg now "$NOW" '.entries[] | select(.status == "superseded" and (.retain_until // "") > $now)
-  | .tag as $t | .assets[] | "\($t) \(.name) \(.sha256)"' "$STABLE_JSON" > superseded.list
-if [[ -s superseded.list ]]; then
-  echo "superseded, kept unlisted:"
-  while read -r tag name sha; do fetch "$STABLE_DIR" "$tag" "$name" "$sha"; done < superseded.list
-fi
+# Superseded (fix-forward) entries are simply left out: their release assets stay downloadable for cached metadata.
 
 # Testing: the newest candidates (pre-releases), never a withdrawn one. Separate window from stable.
 echo "testing (newest ${KEEP} candidates):"
@@ -59,9 +54,10 @@ echo "  ($(wc -l < testing.list) candidate RPM(s))"
 ZCK=(); createrepo_c --help 2>&1 | grep -q -- '--no-zck' && ZCK=(--no-zck)
 # Newer createrepo_c defaults XML metadata to zstd, which yum 3.4 cannot read: ask for gzip where supported.
 createrepo_c --help 2>&1 | grep -q -- '--general-compress-type' && ZCK+=(--general-compress-type=gz)
-EXCLUDES=(); while read -r _ name _; do EXCLUDES+=(--excludes "$name"); done < superseded.list
-createrepo_c --database --compress-type=gz --checksum=sha256 --retain-old-md=0 "${ZCK[@]}" "${EXCLUDES[@]}" "$STABLE_DIR" >/dev/null
-createrepo_c --database --compress-type=gz --checksum=sha256 --retain-old-md=0 "${ZCK[@]}" "$TESTING_DIR" >/dev/null
+# href is TAG/NAME, so xml:base + href is the release asset URL.
+DL=(--baseurl "https://github.com/${REPO}/releases/download/")
+createrepo_c --database --compress-type=gz --checksum=sha256 --retain-old-md=0 "${ZCK[@]}" "${DL[@]}" "$STABLE_DIR" >/dev/null
+createrepo_c --database --compress-type=gz --checksum=sha256 --retain-old-md=0 "${ZCK[@]}" "${DL[@]}" "$TESTING_DIR" >/dev/null
 
 # Advisories (fix-forward): updateinfo.xml from the stable entries that carry one; yum updateinfo reads it.
 jq -r -f "$(dirname "$0")/updateinfo.jq" "$STABLE_JSON" > updateinfo.xml
@@ -71,4 +67,4 @@ if grep -q '<update ' updateinfo.xml; then
 fi
 jq -n --slurpfile s "$STABLE_JSON" --arg c "${PROMOTIONS_COMMIT:-unknown}" --arg at "$NOW" \
   '{generation: $s[0].generation, latest: $s[0].latest, promotions_commit: $c, built_at: $at}' > "${SITE}/stable-generation.json"
-echo "site built: stable $(wc -l < stable.list) RPM(s), $(wc -l < superseded.list) superseded kept unlisted, testing $(wc -l < testing.list) RPM(s)"
+echo "site built: stable $(wc -l < stable.list) RPM(s), testing $(wc -l < testing.list) RPM(s)"
