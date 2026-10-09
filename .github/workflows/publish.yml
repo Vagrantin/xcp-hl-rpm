@@ -1,0 +1,182 @@
+name: Publish yum repositories
+run-name: "Publish rpm.xcp-hl.org (${{ github.event_name }})"
+
+# One Pages site at https://rpm.xcp-hl.org/ for every XCP-HL yum repository (xcp-hl#190):
+#
+#   /xcp-hl/8.3/x86_64/              xcp-hl-release, newest releases of Vagrantin/xcp-hl
+#   /xolite-ce/8.3/x86_64/           xo-lite-ce, newest releases of Vagrantin/xolite-ce
+#   /xoa-proxy/8.3/x86_64/           xoa-proxy stable, exactly stable.json on xoa-proxy's promotions branch
+#   /xoa-proxy/testing/8.3/x86_64/   xoa-proxy candidates (pre-releases)
+#
+# Transition: the source repos still publish their own vagrantin.github.io trees, which installed
+# hosts use. This site mirrors them with the same rules until the cut (README.md).
+#
+# Releases live in other repos, so workflow_run cannot trigger this. The schedule polls, and
+# repository_dispatch (event type rpm-publish) lets a source repo ask for a run once it has a token.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 * * * *"
+  repository_dispatch:
+    types: [rpm-publish]
+  workflow_dispatch:
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+env:
+  # Part of every baseurl a host carries: bumping it adds a tree, never moves one.
+  XCPNG_SERIES: "8.3"
+  REPO_ARCH: "x86_64"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.compare.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Install createrepo_c
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y createrepo-c
+
+      - name: ci/check.sh
+        run: bash ci/check.sh
+
+      # Same window as xcp-hl's pages.yml. Empty is tolerated there too: it predates the first release.
+      - name: Build xcp-hl tree
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: Vagrantin/xcp-hl
+          PKG_GLOB: "xcp-hl-release-*.rpm"
+          KEEP: "10"
+          OUT: _site/xcp-hl/${{ env.XCPNG_SERIES }}/${{ env.REPO_ARCH }}
+          ALLOW_EMPTY: "true"
+        run: bash scripts/build-simple.sh
+
+      # Same window as xolite-ce's pages-repo.yml.
+      - name: Build xolite-ce tree
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: Vagrantin/xolite-ce
+          PKG_GLOB: "xo-lite-ce-*.rpm"
+          KEEP: "5"
+          OUT: _site/xolite-ce/${{ env.XCPNG_SERIES }}/${{ env.REPO_ARCH }}
+        run: bash scripts/build-simple.sh
+
+      # The stable channel is exactly stable.json, read once when this run starts (xcp-hl#154).
+      - name: Read the xoa-proxy promotion record
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 https://github.com/Vagrantin/xoa-proxy.git promotions
+          echo "PROMOTIONS_COMMIT=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_ENV"
+          git show FETCH_HEAD:stable.json > "$RUNNER_TEMP/stable.json"
+          jq -c '{generation, latest, entries: [.entries[] | {tag, status}]}' "$RUNNER_TEMP/stable.json"
+
+      - name: Build xoa-proxy trees
+        working-directory: ${{ runner.temp }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: Vagrantin/xoa-proxy
+          STABLE_JSON: ${{ runner.temp }}/stable.json
+          PKG_GLOB_RE: '^xoa-proxy-.*\.rpm$'
+          KEEP_CANDIDATES: "5"
+          SITE: ${{ github.workspace }}/_site/xoa-proxy
+        run: bash "$GITHUB_WORKSPACE/scripts/build-xoa-proxy.sh"
+
+      - name: Assemble site root
+        run: |
+          set -euo pipefail
+          cp site/* _site/
+          touch _site/.nojekyll
+          # What a deploy would change: every RPM, the promotion generation and this repo's commit.
+          {
+            echo "commit ${GITHUB_SHA}"
+            echo "promotions ${PROMOTIONS_COMMIT}"
+            (cd _site && find . -name '*.rpm' -print0 | sort -z | xargs -0 sha256sum)
+          } > _site/manifest.txt
+          echo "site root:"
+          ls -la _site/
+
+      # Hourly runs only deploy when something moved, so Pages is not redeployed for nothing.
+      - name: Compare with the live site
+        id: compare
+        env:
+          LIVE: ${{ steps.pages.outputs.base_url }}/manifest.txt
+        run: |
+          set -euo pipefail
+          if curl -fsSL --retry 3 -o live-manifest.txt "$LIVE" && cmp -s live-manifest.txt _site/manifest.txt; then
+            echo "live site already matches, nothing to deploy"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Not optional: every .repo sets repo_gpgcheck=1, so unsigned metadata breaks every host.
+      - name: Sign repository metadata
+        if: steps.compare.outputs.changed == 'true'
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          [ -n "${GPG_PRIVATE_KEY:-}" ] || { echo "GPG_PRIVATE_KEY is not set in this repo's secrets"; exit 1; }
+
+          echo "${GPG_PRIVATE_KEY}" | gpg --batch --pinentry-mode loopback \
+            --passphrase "${GPG_PASSPHRASE}" --import
+          mkdir -p ~/.gnupg && chmod 700 ~/.gnupg
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent
+          gpgconf --launch gpg-agent
+          sleep 1
+
+          find _site -path '*/repodata/repomd.xml' | sort > repomd.list
+          [ -s repomd.list ] || { echo "no repository metadata to sign"; exit 1; }
+          while read -r REPOMD; do
+            gpg --batch --pinentry-mode loopback --passphrase "${GPG_PASSPHRASE}" \
+              --armor --detach-sign --digest-algo sha256 \
+              -u "XCP-ng Community Edition" \
+              --output "${REPOMD}.asc" "${REPOMD}"
+            gpg --verify "${REPOMD}.asc" "${REPOMD}"
+            echo "signed ${REPOMD}"
+          done < repomd.list
+
+      - name: Report published size
+        if: steps.compare.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          mb=$(( $(du -sb _site | cut -f1) / 1024 / 1024 ))
+          echo "site size: ${mb} MiB"
+          # GitHub Pages caps a published site at 1 GiB.
+          if [ "${mb}" -gt 800 ]; then
+            echo "::warning::_site is ${mb} MiB, approaching the 1 GiB Pages limit"
+          fi
+
+      - if: steps.compare.outputs.changed == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
