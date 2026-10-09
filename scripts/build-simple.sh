@@ -26,7 +26,7 @@ fi
 find "$OUT" -name '*.rpm' -printf '  %f\n' | sort
 
 # XCP-ng 8.3 dom0 is CentOS 7 (yum 3.4.3): gz metadata, sqlite databases, no zchunk, no zstd.
-ZCK=""; createrepo_c --help 2>&1 | grep -q -- '--no-zck' && ZCK="--no-zck"
-createrepo_c --help 2>&1 | grep -q -- '--general-compress-type' && ZCK="$ZCK --general-compress-type=gz"
-createrepo_c --database --compress-type=gz --checksum=sha256 --retain-old-md=0 ${ZCK} "$OUT" >/dev/null
+ZCK=(); createrepo_c --help 2>&1 | grep -q -- '--no-zck' && ZCK=(--no-zck)
+createrepo_c --help 2>&1 | grep -q -- '--general-compress-type' && ZCK+=(--general-compress-type=gz)
+createrepo_c --database --compress-type=gz --checksum=sha256 --retain-old-md=0 "${ZCK[@]}" "$OUT" >/dev/null
 echo "${OUT}: ${count} RPM(s)"

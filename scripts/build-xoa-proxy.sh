@@ -56,12 +56,12 @@ done < testing.list
 echo "  ($(wc -l < testing.list) candidate RPM(s))"
 
 # XCP-ng 8.3 dom0 is CentOS 7 (yum 3.4.3): gz metadata, sqlite databases, no zchunk.
-ZCK=""; createrepo_c --help 2>&1 | grep -q -- '--no-zck' && ZCK="--no-zck"
+ZCK=(); createrepo_c --help 2>&1 | grep -q -- '--no-zck' && ZCK=(--no-zck)
 # Newer createrepo_c defaults XML metadata to zstd, which yum 3.4 cannot read: ask for gzip where supported.
-createrepo_c --help 2>&1 | grep -q -- '--general-compress-type' && ZCK="$ZCK --general-compress-type=gz"
+createrepo_c --help 2>&1 | grep -q -- '--general-compress-type' && ZCK+=(--general-compress-type=gz)
 EXCLUDES=(); while read -r _ name _; do EXCLUDES+=(--excludes "$name"); done < superseded.list
-createrepo_c --database --compress-type=gz --checksum=sha256 --retain-old-md=0 ${ZCK} "${EXCLUDES[@]}" "$STABLE_DIR" >/dev/null
-createrepo_c --database --compress-type=gz --checksum=sha256 --retain-old-md=0 ${ZCK} "$TESTING_DIR" >/dev/null
+createrepo_c --database --compress-type=gz --checksum=sha256 --retain-old-md=0 "${ZCK[@]}" "${EXCLUDES[@]}" "$STABLE_DIR" >/dev/null
+createrepo_c --database --compress-type=gz --checksum=sha256 --retain-old-md=0 "${ZCK[@]}" "$TESTING_DIR" >/dev/null
 
 # Advisories (fix-forward): updateinfo.xml from the stable entries that carry one; yum updateinfo reads it.
 jq -r -f "$(dirname "$0")/updateinfo.jq" "$STABLE_JSON" > updateinfo.xml
