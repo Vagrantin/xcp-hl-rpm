@@ -11,6 +11,13 @@ an `xml:base` pointing at its GitHub release asset
 download directly. The signed `repomd.xml` still pins every package's SHA-256, so integrity is
 unchanged, and the site stays a few MiB whatever the number of releases.
 
+The package URL a client uses is `xml:base` + `href`, never the bare `href` against this site:
+the RPMs are stripped before deploy, so `/xcp-hl/8.3/x86_64/<tag>/<file>.rpm` answers 404 here by
+design. Both target clients resolve `xml:base`: yum 3.4.3 (XCP-ng 8.3 dom0) reads it into
+`location_base`/`basepath` and downloads `url=basepath, relative=href`, and dnf does the same.
+The publish workflow fails the build unless every published `xml:base` + `href` answers 200, so a
+deleted or renamed release asset cannot be signed into the metadata unnoticed.
+
 | Repository ID | Package | Path | Source |
 |---|---|---|---|
 | `xcp-hl-base` | `xcp-hl-release` | `/xcp-hl/8.3/x86_64/` | newest 10 releases of `Vagrantin/xcp-hl` |
@@ -33,7 +40,7 @@ Issues go to the [xcp-hl repository](https://github.com/Vagrantin/xcp-hl/issues)
   It only deploys when `manifest.txt` differs from the live one. jenkins-infra `prod/promote`
   dispatches it with a `promotion_id` input after writing `stable.json`, and waits for that run.
 - `scripts/build-simple.sh` builds one tree from a repo's newest releases.
-- The workflow checks every package has a release link, then strips the RPMs before deploy.
+- The workflow checks every package's release link resolves (HTTP 200), then strips the RPMs before deploy.
 - `scripts/build-promoted.sh` is adapted from `pages/build-site.sh` in `xoa-proxy` (`ceefb6b`) and
   `xoa-hl` (`e1faaad`), identical in both, to keep packages on the releases. `scripts/updateinfo.jq`
   is vendored unchanged. Port channel rule changes until the cut.
