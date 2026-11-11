@@ -152,6 +152,7 @@ jobs:
           import xml.etree.ElementTree as ET
           XB = '{http://www.w3.org/XML/1998/namespace}base'
           bad = 0
+          urls = []
           for primary in sorted(glob.glob('_site/**/repodata/*-primary.xml.gz', recursive=True)):
               locs = [e for e in ET.parse(gzip.open(primary)).iter() if e.tag.endswith('}location')]
               ok = [l for l in locs
@@ -159,8 +160,21 @@ jobs:
                     and re.fullmatch(r'[^/]+/[^/]+\.rpm', l.get('href', ''))]
               print(f"{primary.split('/repodata/')[0]}: {len(ok)}/{len(locs)} packages on release links")
               bad += len(locs) - len(ok)
-          sys.exit(1 if bad else 0)
+              urls += [l.get(XB) + l.get('href') for l in ok]
+          if bad:
+              sys.exit(1)
+          with open('package-urls.txt', 'w') as f:
+              f.write('\n'.join(sorted(set(urls))) + '\n')
           PY
+          # The pattern check above only proves the URL shape. A release asset deleted or
+          # renamed after the RPM was collected would still be signed into the metadata and
+          # 404 for every client at install time, so every published package URL (xml:base +
+          # href) must actually resolve before the RPMs are stripped.
+          while IFS= read -r url; do
+            code=$(curl -fsSIL --max-time 60 -o /dev/null -w '%{http_code}' "$url") \
+              || { echo "::error::package URL does not resolve: $url"; exit 1; }
+            echo "  $code $url"
+          done < package-urls.txt
           find _site -name '*.rpm' -delete
           find _site -type d -empty -delete
 
